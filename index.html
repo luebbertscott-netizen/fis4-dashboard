@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>FIS4 v17 Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      background:#111;
+      color:#eee;
+      font-family:system-ui;
+      margin:0;
+      padding:20px;
+    }
+    .grid {
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:20px;
+    }
+    .card {
+      background:#1c1c1c;
+      padding:16px;
+      border-radius:8px;
+      box-shadow:0 0 10px #000;
+    }
+    input, select, button {
+      padding:6px 8px;
+      margin:4px 0;
+      background:#222;
+      color:#eee;
+      border:1px solid #444;
+      border-radius:4px;
+    }
+    button {
+      cursor:pointer;
+    }
+    h2 {
+      margin-top:0;
+    }
+    textarea {
+      width:100%;
+      height:140px;
+      background:#111;
+      color:#eee;
+      border:1px solid #444;
+      border-radius:4px;
+      padding:8px;
+    }
+  </style>
+</head>
+<body>
+
+  <h1>FIS4 v17 Dashboard</h1>
+
+  <!-- INPUT PANEL -->
+  <div class="card">
+    <h2>Inputs</h2>
+
+    <label>Lake</label><br />
+    <input id="lake" value="Hillsdale" /><br />
+
+    <label>Species</label><br />
+    <input id="species" value="Crappie" /><br />
+
+    <label>Hour</label><br />
+    <input id="hour" type="number" value="6" /><br />
+
+    <label>Mode</label><br />
+    <input id="mode" value="DEFAULT" /><br />
+
+    <button onclick="runCore()">Run v17</button>
+    <div id="status" style="margin-top:8px;font-size:0.9em;color:#aaa;"></div>
+  </div>
+
+  <!-- OUTPUT PANELS -->
+  <div class="grid" style="margin-top:20px;">
+    <div class="card">
+      <h2>Tactical Briefing</h2>
+      <textarea id="tactical"></textarea>
+    </div>
+
+    <div class="card">
+      <h2>Daily Briefing</h2>
+      <textarea id="daily"></textarea>
+    </div>
+  </div>
+
+  <!-- PRESSURE TREND CHART -->
+  <div class="card" style="margin-top:20px;">
+    <h2>Barometric Pressure Trend (Last 5 / Next 5)</h2>
+    <canvas id="pressureChart"></canvas>
+  </div>
+
+  <script>
+    const CORE_URL =
+      "https://script.google.com/macros/s/AKfycbxEVbfmjWqdqp-cxArdCP9VQ2GscGD6R9Fnfug4Irbh5CCD-OMw6PjNdVKR6I3oWula/exec";
+
+    let pressureChart;
+
+    async function runCore() {
+      const lake = document.getElementById('lake').value;
+      const species = document.getElementById('species').value;
+      const hour = Number(document.getElementById('hour').value);
+      const mode = document.getElementById('mode').value;
+
+      document.getElementById('status').textContent = "Running v17…";
+
+      const payload = {
+        LakeCode: lake,
+        SpeciesCode: species,
+        Hour: hour,
+        Mode: mode,
+        Timestamp: new Date().toISOString()
+      };
+
+      try {
+        const res = await fetch(CORE_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+
+        const json = await res.json();
+
+        if (json.error) {
+          document.getElementById('status').textContent =
+            "Core error: " + json.error;
+          return;
+        }
+
+        // Text outputs
+        document.getElementById('tactical').value = json.Briefing || "";
+        document.getElementById('daily').value = json.DailyBriefing || "";
+        document.getElementById('status').textContent = "OK";
+
+        // Pressure trend (real if provided, demo if not)
+        if (json.PressureTrend) {
+          renderPressureChart(json.PressureTrend);
+        } else {
+          const demo = {
+            Past: [
+              { date: "D-5", pressure: 1014 },
+              { date: "D-4", pressure: 1016 },
+              { date: "D-3", pressure: 1015 },
+              { date: "D-2", pressure: 1013 },
+              { date: "D-1", pressure: 1012 }
+            ],
+            Forecast: [
+              { date: "D+1", pressure: 1013 },
+              { date: "D+2", pressure: 1015 },
+              { date: "D+3", pressure: 1017 },
+              { date: "D+4", pressure: 1018 },
+              { date: "D+5", pressure: 1019 }
+            ]
+          };
+          renderPressureChart(demo);
+        }
+
+      } catch (err) {
+        document.getElementById('status').textContent =
+          "Fetch error: " + err;
+      }
+    }
+
+    function renderPressureChart(trend) {
+      const past = trend.Past || [];
+      const forecast = trend.Forecast || [];
+
+      const labels = [
+        ...past.map(p => p.date),
+        ...forecast.map(f => f.date)
+      ];
+
+      const pastData = past.map(p => p.pressure);
+      const forecastData = [
+        ...new Array(past.length).fill(null),
+        ...forecast.map(f => f.pressure)
+      ];
+
+      const ctx = document.getElementById('pressureChart').getContext('2d');
+
+      if (pressureChart) pressureChart.destroy();
+
+      pressureChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [
+            {
+              label: 'Past 5 days',
+              data: pastData,
+              borderColor: '#4fc3f7',
+              backgroundColor: 'rgba(79,195,247,0.2)',
+              tension: 0.3
+            },
+            {
+              label: 'Next 5 days',
+              data: forecastData,
+              borderColor: '#ffb74d',
+              backgroundColor: 'rgba(255,183,77,0.2)',
+              tension: 0.3
+            }
+          ]
+        },
+        options: {
+          plugins: {
+            legend: { labels: { color: '#eee' } }
+          },
+          scales: {
+            x: { ticks: { color: '#ccc' }, grid: { color: '#333' } },
+            y: { ticks: { color: '#ccc' }, grid: { color: '#333' } }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
